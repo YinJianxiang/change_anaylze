@@ -1,0 +1,11 @@
+{
+  "张三": {
+    "open_id": "ou_xxxxxxxxxxxxxxxx",
+    "enabled": true
+  },
+  "李四": {
+    "receive_id_type": "email",
+    "receive_id": "lisi@example.com",
+    "enabled": true
+  }
+}

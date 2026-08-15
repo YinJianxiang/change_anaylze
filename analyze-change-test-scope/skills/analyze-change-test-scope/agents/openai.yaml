@@ -1,0 +1,4 @@
+interface:
+  display_name: "代码变更与 PR 测试范围分析"
+  short_description: "扫描完整项目源码并建立轻量级调用图，生成风险分级测试范围"
+  default_prompt: "Use $analyze-change-test-scope to scan the complete repository, build a lightweight call graph, and produce a prioritized change test scope."

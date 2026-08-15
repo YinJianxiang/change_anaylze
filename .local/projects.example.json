@@ -1,0 +1,7 @@
+{
+  "market-admin": {
+    "repository": "git@host:group/market-admin.git",
+    "local_path": "D:/Project/market-admin",
+    "base_branch": "master"
+  }
+}
