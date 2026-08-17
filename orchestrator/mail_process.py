@@ -37,7 +37,7 @@ def read_payloads(database: Path, limit: int | None = None) -> list[dict[str, ob
                         "projects": projects if isinstance(projects, list) else [],
                         "reference_documents": requirement_urls if isinstance(requirement_urls, list) else [],
                 }
-                for key in ("reviewer_name", "receiver_id_type", "receiver_id", "routing_error"):
+                for key in ("reviewer_name", "dingtalk_user_id", "routing_error"):
                     if value.get(key):
                         item[key] = value[key]
                 result.append(item)

@@ -122,10 +122,10 @@ class MailStoreTests(unittest.TestCase):
                 original_id = "<original@example.test>"
                 original = make_message("Project branch version:\napi | feature-1", "plain", original_id)
                 trigger = make_message("@张三跟进测试", "plain", "<reply@example.test>", original_id)
-                router = ReviewerRouter({"张三": {"open_id": "ou_123"}})
+                router = ReviewerRouter({"张三": {"dingtalk_user_id": "user123"}})
                 result = run_once(FakeReader([original, trigger]), store, DEFAULT_TRIGGER, 7, reviewer_router=router)
-                self.assertEqual((result[0].reviewer_name, result[0].receiver_id_type, result[0].receiver_id),
-                                 ("张三", "open_id", "ou_123"))
+                self.assertEqual((result[0].reviewer_name, result[0].dingtalk_user_id),
+                                 ("张三", "user123"))
             finally:
                 store.close()
 
@@ -137,7 +137,7 @@ class MailStoreTests(unittest.TestCase):
                 original_id = "<original@example.test>"
                 original = make_message("Project branch version:\napi | feature-1", "plain", original_id)
                 trigger = make_message("@李四跟进测试", "plain", "<reply@example.test>", original_id)
-                router = ReviewerRouter({"张三": {"open_id": "ou_123"}})
+                router = ReviewerRouter({"张三": {"dingtalk_user_id": "user123"}})
                 published = []
 
                 result = run_once(
@@ -167,8 +167,8 @@ class MailStoreTests(unittest.TestCase):
                     "plain", "<reply@example.test>", original_id,
                 )
                 router = ReviewerRouter({
-                    "alice": {"open_id": "ou_123"},
-                    "bob": {"open_id": "ou_456"},
+                    "alice": {"dingtalk_user_id": "user123"},
+                    "bob": {"dingtalk_user_id": "user456"},
                 })
                 published = []
 
@@ -199,7 +199,7 @@ class MailStoreTests(unittest.TestCase):
             finally:
                 store.close()
 
-    def test_non_open_id_route_is_filtered_before_storage(self) -> None:
+    def test_non_dingtalk_route_is_filtered_before_storage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             database = Path(temp_dir) / "mail.sqlite3"
             store = MessageStore(database)
@@ -209,9 +209,7 @@ class MailStoreTests(unittest.TestCase):
                 trigger = make_message(
                     f"@alice{DEFAULT_TRIGGER}", "plain", "<reply@example.test>", original_id
                 )
-                router = ReviewerRouter({
-                    "alice": {"receive_id_type": "email", "receive_id": "qa@example.test"}
-                })
+                router = ReviewerRouter({"alice": {"email": "qa@example.test"}})
 
                 result = run_once(
                     FakeReader([original, trigger]), store, DEFAULT_TRIGGER, 7, reviewer_router=router
@@ -239,7 +237,7 @@ class MailStoreTests(unittest.TestCase):
                 trigger_id,
                 )
                 reader = FakeReader([original, trigger])
-                router = ReviewerRouter({"xxx": {"open_id": "ou_123"}})
+                router = ReviewerRouter({"xxx": {"dingtalk_user_id": "user123"}})
                 self.assertEqual(len(run_once(reader, store, DEFAULT_TRIGGER, 7, reviewer_router=router)), 1)
                 self.assertEqual(len(run_once(reader, store, DEFAULT_TRIGGER, 7, reviewer_router=router)), 0)
             finally:

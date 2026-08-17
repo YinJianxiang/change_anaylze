@@ -7,6 +7,27 @@ description: Prepare safe GitHub PR workspaces, scan all supported source files 
 
 Turn code changes into a reviewable test plan. Separate observed facts from inferred impact and never claim that a diff fully represents the product requirement.
 
+## Enterprise agent tools
+
+When the `change-analysis` MCP tools are available, use them instead of assuming
+direct filesystem or shell access:
+
+1. For a mail-triggered task, call `get_mail_analysis_task` with the supplied
+   `task_id` and `agent_access_token` before drawing conclusions.
+2. Call `prepare_change_workspace` with each configured project and target branch.
+3. Call `collect_change_context` and `collect_repository_impact` with the returned
+   `analysis_id`.
+4. Validate important heuristic edges with `search_repository` and
+   `read_source_evidence` before presenting them as confirmed calls.
+5. Call `release_change_workspace` after the report is complete.
+6. For a mail-triggered task, call `complete_mail_analysis_task` with the final
+   structured report so the result is auditable outside the conversation.
+
+Never invent project names, repository paths, branches, source content, or MCP
+results. Ask for the project or branch only when it cannot be determined from the
+conversation. MCP evidence warnings and incomplete scans must remain visible in
+the final report.
+
 ## Select the mode
 
 - Use **Mode A — change-only** when no requirement is supplied. Infer the likely intent, label it as inference, and focus on impact and tests.

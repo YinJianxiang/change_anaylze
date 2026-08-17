@@ -11,10 +11,8 @@ from orchestrator.time_utils import now_beijing
 class TaskStatus(str, Enum):
     NEW = "NEW"
     PROCESSING = "PROCESSING"
-    WAITING_CONFIRM = "WAITING_CONFIRM"
     DONE = "DONE"
     FAILED = "FAILED"
-    REJECTED = "REJECTED"
 
 
 class EventType(str, Enum):
@@ -22,8 +20,7 @@ class EventType(str, Enum):
     ANALYSIS_REQUESTED = "analysis.requested"
     ANALYSIS_COMPLETED = "analysis.completed"
     ANALYSIS_FAILED = "analysis.failed"
-    FEISHU_ANALYSIS_READY = "feishu.analysis.ready"
-    FEISHU_CONFIRMATION_RECEIVED = "feishu.confirmation.received"
+    DINGTALK_AGENT_DISPATCHED = "dingtalk.agent.dispatched"
 
 
 @dataclass(frozen=True)

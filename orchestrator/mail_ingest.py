@@ -51,8 +51,7 @@ class ParsedRequest:
     remark: str
     body_text: str
     reviewer_name: str = ""
-    receiver_id_type: str = ""
-    receiver_id: str = ""
+    dingtalk_user_id: str = ""
     routing_error: str = ""
 
     def to_dict(self) -> dict[str, object]:
@@ -243,8 +242,7 @@ class MessageStore:
             "(message_id TEXT PRIMARY KEY, task_id TEXT UNIQUE, processed_at TEXT NOT NULL, payload TEXT NOT NULL, "
             "status TEXT NOT NULL DEFAULT 'NEW', retry_count INTEGER NOT NULL DEFAULT 0, "
             "last_error TEXT, updated_at TEXT, completed_at TEXT, result_payload TEXT, "
-            "feedback TEXT, robot_message_id TEXT, sender_open_id TEXT, chat_id TEXT, "
-            "reviewer_name TEXT, receiver_id_type TEXT, receiver_id TEXT, routing_error TEXT, "
+            "feedback TEXT, reviewer_name TEXT, dingtalk_user_id TEXT, routing_error TEXT, "
             "created_at TEXT, locked_at TEXT, locked_by TEXT)"
         )
         columns = {row[1] for row in self.connection.execute("PRAGMA table_info(processed_messages)")}
@@ -257,12 +255,8 @@ class MessageStore:
             "completed_at": "ALTER TABLE processed_messages ADD COLUMN completed_at TEXT",
             "result_payload": "ALTER TABLE processed_messages ADD COLUMN result_payload TEXT",
             "feedback": "ALTER TABLE processed_messages ADD COLUMN feedback TEXT",
-            "robot_message_id": "ALTER TABLE processed_messages ADD COLUMN robot_message_id TEXT",
-            "sender_open_id": "ALTER TABLE processed_messages ADD COLUMN sender_open_id TEXT",
-            "chat_id": "ALTER TABLE processed_messages ADD COLUMN chat_id TEXT",
             "reviewer_name": "ALTER TABLE processed_messages ADD COLUMN reviewer_name TEXT",
-            "receiver_id_type": "ALTER TABLE processed_messages ADD COLUMN receiver_id_type TEXT",
-            "receiver_id": "ALTER TABLE processed_messages ADD COLUMN receiver_id TEXT",
+            "dingtalk_user_id": "ALTER TABLE processed_messages ADD COLUMN dingtalk_user_id TEXT",
             "routing_error": "ALTER TABLE processed_messages ADD COLUMN routing_error TEXT",
             "created_at": "ALTER TABLE processed_messages ADD COLUMN created_at TEXT",
             "locked_at": "ALTER TABLE processed_messages ADD COLUMN locked_at TEXT",
@@ -285,8 +279,8 @@ class MessageStore:
         self.connection.execute(
             "INSERT OR IGNORE INTO processed_messages"
             "(message_id, task_id, processed_at, payload, status, retry_count, updated_at, created_at,"
-            "reviewer_name,receiver_id_type,receiver_id,routing_error) "
-            "VALUES (?, ?, ?, ?, 'NEW', 0, ?, ?, ?, ?, ?, ?)",
+            "reviewer_name,dingtalk_user_id,routing_error) "
+            "VALUES (?, ?, ?, ?, 'NEW', 0, ?, ?, ?, ?, ?)",
             (
                 request.message_id,
                 request.message_id,
@@ -295,8 +289,7 @@ class MessageStore:
                 now_beijing(),
                 now_beijing(),
                 request.reviewer_name,
-                request.receiver_id_type,
-                request.receiver_id,
+                request.dingtalk_user_id,
                 request.routing_error,
             ),
         )
@@ -422,11 +415,10 @@ def run_once(
             route = reviewer_router.resolve(mentions[0])
         except ReviewerRoutingError:
             continue
-        if route.receive_id_type != "open_id" or not route.receive_id:
+        if not route.dingtalk_user_id:
             continue
         request = dataclasses.replace(request, reviewer_name=route.name,
-                                      receiver_id_type=route.receive_id_type,
-                                      receiver_id=route.receive_id)
+                                      dingtalk_user_id=route.dingtalk_user_id)
         store.save(request)
         if publisher is not None:
             from orchestrator.messaging.events import make_event

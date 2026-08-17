@@ -29,7 +29,7 @@ class StorageTests(unittest.TestCase):
             columns = {row[1] for row in store.connection.execute("PRAGMA table_info(processed_messages)")}
             row = store.connection.execute("SELECT task_id,created_at,status FROM processed_messages WHERE message_id='m1'").fetchone()
             store.close()
-            self.assertTrue({"task_id", "created_at", "sender_open_id", "chat_id"}.issubset(columns))
+            self.assertTrue({"task_id", "created_at", "dingtalk_user_id"}.issubset(columns))
             self.assertEqual(row, ("m1", "2026-08-14T00:00:00Z", "NEW"))
 
     def test_claim_and_transition_are_compare_and_set(self) -> None:
@@ -42,8 +42,8 @@ class StorageTests(unittest.TestCase):
             tasks = TaskStore(database)
             self.assertEqual(len(tasks.claim_new("worker-1")), 1)
             self.assertEqual(tasks.claim_new("worker-2"), [])
-            self.assertTrue(tasks.transition("t1", "PROCESSING", "WAITING_CONFIRM"))
-            self.assertFalse(tasks.transition("t1", "PROCESSING", "DONE"))
+            self.assertTrue(tasks.transition("t1", "PROCESSING", "DONE"))
+            self.assertFalse(tasks.transition("t1", "PROCESSING", "FAILED"))
             tasks.close()
 
     def test_event_claim_is_idempotent(self) -> None:

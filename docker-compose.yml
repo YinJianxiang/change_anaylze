@@ -9,42 +9,32 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-  llm-server:
+  change-analysis-mcp:
     build: .
-    command: ["python", "-m", "orchestrator.llm_server"]
+    command: ["python", "-m", "orchestrator.mcp_server", "--config", "/app/.local/projects.json", "--database", "/data/tasks.sqlite3"]
     restart: unless-stopped
     env_file: .env
-    ports: ["8081:8081"]
+    ports: ["8082:8082"]
+    volumes: ["task-data:/data", "./.local:/app/.local:ro"]
   task-worker:
     build: .
-    command: ["python", "-m", "orchestrator.task_worker", "--consume", "--database", "/data/tasks.sqlite3", "--config", "/app/.local/projects.json"]
+    command: ["python", "-m", "orchestrator.task_worker", "--consume", "--database", "/data/tasks.sqlite3"]
     restart: unless-stopped
     env_file: .env
     environment:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
-      LLM_SERVER_URL: http://llm-server:8081/analyze
     volumes: ["task-data:/data", "./.local:/app/.local:ro"]
     depends_on:
       rabbitmq: {condition: service_healthy}
-      llm-server: {condition: service_started}
   mail-ingest:
     build: .
     command: ["python", "-m", "orchestrator.mail_ingest", "--database", "/data/tasks.sqlite3"]
     env_file: .env
     environment: {RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/%2F"}
-    volumes: ["task-data:/data"]
+    volumes: ["task-data:/data", "./.local:/app/.local:ro"]
     depends_on:
       rabbitmq: {condition: service_healthy}
     profiles: ["ingest"]
-  feishu:
-    build: .
-    command: ["python", "-m", "orchestrator.feishu_long_connection", "--database", "/data/feishu.sqlite3"]
-    restart: unless-stopped
-    env_file: .env
-    environment: {RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/%2F"}
-    volumes: ["task-data:/data"]
-    depends_on:
-      rabbitmq: {condition: service_healthy}
 volumes:
   rabbitmq-data:
   task-data:
