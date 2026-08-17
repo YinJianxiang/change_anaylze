@@ -8,7 +8,7 @@ import os
 import uuid
 from pathlib import Path
 
-from orchestrator.mail_ingest import DEFAULT_ENV_FILE, load_env_file
+from orchestrator.mail_ingest import DEFAULT_ENV_FILE, _parse_projects, load_env_file
 from orchestrator.messaging.events import make_event
 from orchestrator.messaging.rabbitmq import RabbitMQ
 from orchestrator.services.feishu_service import FeishuService
@@ -102,6 +102,8 @@ class EventTaskWorker:
             if payload.get("routing_error"):
                 raise PermanentTaskError(str(payload["routing_error"]))
             projects = payload.get("projects", [])
+            if not projects and isinstance(payload.get("body_text"), str):
+                projects = [item.__dict__ for item in _parse_projects(payload["body_text"])]
             if not projects:
                 raise PermanentTaskError("No project branches found in the mail payload")
             self._publish("analysis.requested", task_id, {})

@@ -88,7 +88,7 @@ class TaskRunnerTests(unittest.TestCase):
             insert_task(database)
             snapshot = {"project": "api", "merge_base": "base", "target_commit": "head", "diff": "diff"}
             analysis = {"result": {"summary": "ok", "risks": [], "test_scope": []}}
-            with patch("orchestrator.task_runner.git_snapshot", return_value=snapshot), patch("orchestrator.task_runner.analyze_with_openai", return_value=analysis), patch("orchestrator.task_runner.send_feishu_card", return_value="robot-1"):
+            with patch("orchestrator.task_runner.git_snapshot", return_value=snapshot), patch("orchestrator.task_runner.analyze_with_openai", return_value=analysis), patch("orchestrator.services.feishu_service.FeishuService.send_analysis", return_value="robot-1"):
                 self.assertEqual(len(run_task(database, config)), 1)
             connection = sqlite3.connect(database)
             self.assertEqual(connection.execute("SELECT status, robot_message_id FROM processed_messages").fetchone(), ("WAITING_CONFIRM", "robot-1"))

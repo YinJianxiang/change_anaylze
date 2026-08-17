@@ -145,38 +145,63 @@ def _field_value(body: str, label: str, stop_labels: Iterable[str]) -> str:
 
 
 def _parse_projects(body: str) -> list[ProjectBranch]:
-    section_match = re.search(
-        r"工程\s*\|\s*分支\s*\|\s*版本号\s*[:：]\s*(.*?)"
-        r"(?=\n(?:工程依赖|数据脚本|配置更新|提测接口|参考文档|接口修改|目标环境|测试内容|备注)\s*[:：]|\Z)",
-        body,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    if section_match:
-        projects: list[ProjectBranch] = []
-        seen: set[tuple[str, str]] = set()
-        for line in section_match.group(1).splitlines():
-            match = re.match(r"\s*([\w.-]+)\s*\|\s*(\S+)\s*$", line)
-            if match:
-                item = ProjectBranch(match.group(1), match.group(2))
-                key = (item.project, item.branch)
-                if key not in seen:
-                    projects.append(item)
-                    seen.add(key)
-        return projects
-
-    labels = ["工程分支版本号", "工程依赖", "数据脚本", "配置更新", "提测接口", "参考文档", "接口修改", "目标环境", "测试内容", "备注"]
-    section = _field_value(body, "工程分支版本号", labels[1:])
     projects: list[ProjectBranch] = []
     seen: set[tuple[str, str]] = set()
-    for line in section.splitlines():
-        match = re.match(r"\s*([\w.-]+)\s*[|｜]\s*([^\s|｜]+)\s*$", line)
-        if not match:
-            continue
-        item = ProjectBranch(match.group(1), match.group(2))
+    pending_project: str | None = None
+
+    def project_name(value: str) -> str | None:
+        value = value.strip().strip("`<>()[]{}，,;；")
+        url_match = re.match(r"https?://[^\s|｜]+/([^/?#|｜]+?)(?:\.git)?(?:[/?#].*)?$", value, re.IGNORECASE)
+        if url_match:
+            return url_match.group(1).removesuffix(".git")
+        return value if re.fullmatch(r"[A-Za-z0-9_.-]+", value) else None
+
+    def is_branch(value: str) -> bool:
+        value = value.strip().strip("`<>()[]{}，,;；")
+        if not value or any(char.isspace() for char in value):
+            return False
+        return bool(re.fullmatch(
+            r"(?:feature|feat|bugfix|fix|hotfix|release|develop|dev|test|uat|prod)[/_-][A-Za-z0-9._/-]+"
+            r"|(?:master|main|develop|development)"
+            r"|dev_[A-Za-z0-9._/-]+",
+            value,
+            flags=re.IGNORECASE,
+        ))
+
+    def add(project: str | None, branch: str) -> None:
+        if not project or not is_branch(branch):
+            return
+        item = ProjectBranch(project, branch.strip().strip("`<>()[]{}，,;；"))
         key = (item.project, item.branch)
         if key not in seen:
             projects.append(item)
             seen.add(key)
+
+    for raw_line in body.splitlines():
+        line = re.sub(r"[\u200b\u200c\u200d\u2060\ufeff]", "", raw_line).strip()
+        if not line:
+            continue
+        cells = [cell.strip() for cell in re.split(r"[|｜]", line)]
+        if len(cells) >= 2:
+            candidate_project = project_name(cells[0])
+            branch = next((cell for cell in cells[1:] if is_branch(cell)), None)
+            if branch:
+                add(candidate_project, branch)
+                pending_project = None
+            elif candidate_project and (line.startswith("http://") or line.startswith("https://")):
+                pending_project = candidate_project
+            else:
+                pending_project = None
+            continue
+        if pending_project and is_branch(line):
+            add(pending_project, line)
+            pending_project = None
+            continue
+        simple = re.match(r"^([A-Za-z0-9_.-]+)\s+([^\s]+)$", line)
+        if simple and is_branch(simple.group(2)):
+            add(project_name(simple.group(1)), simple.group(2))
+        elif not re.match(r"^(?:工程|项目|project|repository)\b", line, re.IGNORECASE):
+            pending_project = None
     return projects
 
 
@@ -390,19 +415,18 @@ def run_once(
         request = parse_message(raw, trigger_text, require_trigger=False)
         if request is None or store.contains(request.message_id):
             continue
-        if len(mentions) > 1:
-            request = dataclasses.replace(request, routing_error="Multiple reviewers were specified")
-        elif mentions:
-            if reviewer_router is None:
-                request = dataclasses.replace(request, reviewer_name=mentions[0])
-            else:
-                try:
-                    route = reviewer_router.resolve(mentions[0])
-                    request = dataclasses.replace(request, reviewer_name=route.name,
-                                                  receiver_id_type=route.receive_id_type,
-                                                  receiver_id=route.receive_id)
-                except ReviewerRoutingError:
-                    continue
+        # Reject ambiguous or incomplete routing before the task reaches storage.
+        if len(mentions) != 1 or reviewer_router is None:
+            continue
+        try:
+            route = reviewer_router.resolve(mentions[0])
+        except ReviewerRoutingError:
+            continue
+        if route.receive_id_type != "open_id" or not route.receive_id:
+            continue
+        request = dataclasses.replace(request, reviewer_name=route.name,
+                                      receiver_id_type=route.receive_id_type,
+                                      receiver_id=route.receive_id)
         store.save(request)
         if publisher is not None:
             from orchestrator.messaging.events import make_event

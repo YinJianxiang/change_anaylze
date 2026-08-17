@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from orchestrator.mail_ingest import DEFAULT_TRIGGER, MessageStore, load_env_file, parse_message, parse_reviewer_mentions, run_once  # noqa: E402
+from orchestrator.mail_ingest import DEFAULT_TRIGGER, MessageStore, _parse_projects, load_env_file, parse_message, parse_reviewer_mentions, run_once  # noqa: E402
 from orchestrator.services.reviewer_router import ReviewerRouter  # noqa: E402
 
 
@@ -49,6 +49,30 @@ HTML_BODY = """
 
 
 class MailParserTests(unittest.TestCase):
+    def test_parses_multiple_projects_without_relying_on_header(self) -> None:
+        projects = _parse_projects(
+            "其他内容\nmarket-admin | feature/auto-fill-material\n"
+            "market-opt｜feature/auto-fill-material\n备注：完成"
+        )
+        self.assertEqual([(item.project, item.branch) for item in projects], [
+            ("market-admin", "feature/auto-fill-material"),
+            ("market-opt", "feature/auto-fill-material"),
+        ])
+
+    def test_parses_git_urls_and_wrapped_branch(self) -> None:
+        projects = _parse_projects(
+            "https://gitlab.test/team/glory-advert.git | dev_feature_1\n"
+            "https://gitlab.test/team/glory-admin | admin-content |\n"
+            "feature/1023688-hemascript-0813"
+        )
+        self.assertEqual([(item.project, item.branch) for item in projects], [
+            ("glory-advert", "dev_feature_1"),
+            ("glory-admin", "feature/1023688-hemascript-0813"),
+        ])
+
+    def test_ignores_branch_without_project(self) -> None:
+        self.assertEqual(_parse_projects("部署分支：dev_215"), [])
+
     def test_extracts_reviewer_name(self) -> None:
         self.assertEqual(parse_reviewer_mentions("请 @张三 跟进测试"), ["张三"])
 
@@ -131,6 +155,72 @@ class MailStoreTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_multiple_reviewers_are_filtered_before_storage_and_publish(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = Path(temp_dir) / "mail.sqlite3"
+            store = MessageStore(database)
+            try:
+                original_id = "<original@example.test>"
+                original = make_message("Project branch version:\napi | feature-1", "plain", original_id)
+                trigger = make_message(
+                    f"@alice{DEFAULT_TRIGGER} @bob{DEFAULT_TRIGGER}",
+                    "plain", "<reply@example.test>", original_id,
+                )
+                router = ReviewerRouter({
+                    "alice": {"open_id": "ou_123"},
+                    "bob": {"open_id": "ou_456"},
+                })
+                published = []
+
+                result = run_once(
+                    FakeReader([original, trigger]), store, DEFAULT_TRIGGER, 7,
+                    publisher=lambda *args: published.append(args), reviewer_router=router,
+                )
+
+                self.assertEqual(result, [])
+                self.assertFalse(store.contains(original_id))
+                self.assertEqual(published, [])
+            finally:
+                store.close()
+
+    def test_missing_router_is_filtered_before_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = Path(temp_dir) / "mail.sqlite3"
+            store = MessageStore(database)
+            try:
+                original_id = "<original@example.test>"
+                original = make_message("Project branch version:\napi | feature-1", "plain", original_id)
+                trigger = make_message(
+                    f"@alice{DEFAULT_TRIGGER}", "plain", "<reply@example.test>", original_id
+                )
+
+                self.assertEqual(run_once(FakeReader([original, trigger]), store, DEFAULT_TRIGGER, 7), [])
+                self.assertFalse(store.contains(original_id))
+            finally:
+                store.close()
+
+    def test_non_open_id_route_is_filtered_before_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = Path(temp_dir) / "mail.sqlite3"
+            store = MessageStore(database)
+            try:
+                original_id = "<original@example.test>"
+                original = make_message("Project branch version:\napi | feature-1", "plain", original_id)
+                trigger = make_message(
+                    f"@alice{DEFAULT_TRIGGER}", "plain", "<reply@example.test>", original_id
+                )
+                router = ReviewerRouter({
+                    "alice": {"receive_id_type": "email", "receive_id": "qa@example.test"}
+                })
+
+                result = run_once(
+                    FakeReader([original, trigger]), store, DEFAULT_TRIGGER, 7, reviewer_router=router
+                )
+                self.assertEqual(result, [])
+                self.assertFalse(store.contains(original_id))
+            finally:
+                store.close()
+
     def test_message_replied_to_by_trigger_is_processed_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             database = Path(temp_dir) / "mail.sqlite3"
@@ -147,10 +237,11 @@ class MailStoreTests(unittest.TestCase):
                 "plain",
                 "<reply@example.test>",
                 trigger_id,
-            )
+                )
                 reader = FakeReader([original, trigger])
-                self.assertEqual(len(run_once(reader, store, DEFAULT_TRIGGER, 7)), 1)
-                self.assertEqual(len(run_once(reader, store, DEFAULT_TRIGGER, 7)), 0)
+                router = ReviewerRouter({"xxx": {"open_id": "ou_123"}})
+                self.assertEqual(len(run_once(reader, store, DEFAULT_TRIGGER, 7, reviewer_router=router)), 1)
+                self.assertEqual(len(run_once(reader, store, DEFAULT_TRIGGER, 7, reviewer_router=router)), 0)
             finally:
                 store.close()
 

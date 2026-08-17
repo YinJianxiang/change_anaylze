@@ -43,12 +43,15 @@ def _truncate_utf8(value: str, limit: int) -> tuple[str, bool]:
     return encoded[:limit].decode("utf-8", errors="ignore") + "\n[diff truncated before LLM analysis]\n", True
 
 
-def enrich_snapshot(snapshot: dict[str, Any], timeout: int = 60, max_diff_bytes: int = 120_000) -> dict[str, Any]:
+def enrich_snapshot(snapshot: dict[str, Any], timeout: int = 60, max_diff_bytes: int = 0) -> dict[str, Any]:
     """Attach skill evidence; preserve the snapshot when evidence collection fails."""
     enriched = dict(snapshot)
-    diff, truncated = _truncate_utf8(str(snapshot.get("diff", "")), max_diff_bytes)
-    enriched["diff"] = diff
-    enriched["diff_truncated_for_llm"] = truncated
+    if max_diff_bytes > 0:
+        diff, truncated = _truncate_utf8(str(snapshot.get("diff", "")), max_diff_bytes)
+        enriched["diff"] = diff
+        enriched["diff_truncated_for_llm"] = truncated
+    else:
+        enriched["diff_truncated_for_llm"] = False
     repo_value = snapshot.get("local_path")
     revision_base = snapshot.get("merge_base")
     revision_head = snapshot.get("target_commit")
@@ -77,7 +80,7 @@ def enrich_snapshot(snapshot: dict[str, Any], timeout: int = 60, max_diff_bytes:
     return enriched
 
 
-def enrich_snapshots(snapshots: list[dict[str, Any]], timeout: int = 60, max_diff_bytes: int = 120_000) -> tuple[list[dict[str, Any]], str, list[str]]:
+def enrich_snapshots(snapshots: list[dict[str, Any]], timeout: int = 60, max_diff_bytes: int = 0) -> tuple[list[dict[str, Any]], str, list[str]]:
     enriched = [enrich_snapshot(item, timeout, max_diff_bytes) for item in snapshots]
     warnings = [warning for item in enriched for warning in item.get("evidence_warnings", [])]
     warnings.extend("Diff was truncated before LLM analysis for " + str(item.get("project", "repository"))

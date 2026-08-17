@@ -132,12 +132,29 @@ def analyze_with_openai(input_payload: dict[str, object]) -> dict[str, object]:
         "required": ["summary", "findings", "risks", "test_scope", "uncertainties"],
         "additionalProperties": False,
     }
+    analysis_mode = str(input_payload.get("analysis_mode", ""))
+    mode_instruction = ""
+    if analysis_mode == "batch-change-analysis":
+        mode_instruction = (
+            "\nThis is one batch of a larger change. Be concise: return at most 5 findings, "
+            "5 risks, 8 test items, and 5 uncertainties. Analyze only the supplied files; "
+            "do not restate repository metadata or produce a final cross-batch report."
+        )
+    elif analysis_mode == "batch-summary":
+        mode_instruction = (
+            "\nThis is the final aggregation. Deduplicate the supplied batch results, preserve "
+            "cross-module risks, and return one concise final report."
+        )
     body = {
         "model": model,
-        "input": [{"role": "system", "content": skill_instructions + "\nUse the supplied repository evidence and distinguish facts from inferences. Return only the requested JSON schema."},
+        "input": [{"role": "system", "content": skill_instructions + "\nUse the supplied repository evidence and distinguish facts from inferences. Return only the requested JSON schema." + mode_instruction},
                   {"role": "user", "content": json.dumps(input_payload, ensure_ascii=False)}],
         "text": {"format": {"type": "json_schema", "name": "change_analysis", "strict": True, "schema": schema}},
+        "max_output_tokens": int(os.environ.get("OPENAI_MAX_OUTPUT_TOKENS", "4000")),
     }
+    reasoning_effort = os.environ.get("OPENAI_REASONING_EFFORT", "low").strip()
+    if reasoning_effort:
+        body["reasoning"] = {"effort": reasoning_effort}
     debug_dir = os.environ.get("LLM_DEBUG_DUMP_DIR", "").strip()
     if debug_dir:
         debug_path = Path(debug_dir)
