@@ -1,0 +1,2 @@
+# DingTalk document Bridge (wraps Cursor「钉钉文档」MCP; no OpenAPI AppKey)
+mcp>=1.8,<2
