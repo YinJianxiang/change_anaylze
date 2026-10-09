@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "change-analysis-harness"
+version = "0.2.0"
+description = "Standalone TAPD/DingTalk requirement and Git change evidence collector for Codex"
+requires-python = ">=3.11"
+dependencies = [
+    "tree-sitter==0.23.2",
+    "tree-sitter-java==0.23.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+change_analysis_harness = ["guidance/*.md"]
+
