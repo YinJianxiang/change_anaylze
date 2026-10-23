@@ -57,7 +57,13 @@ class GitService:
             return (completed.stdout or "").strip()
 
         if fetch_remote:
-            run("fetch", "origin", base_branch, branch)
+            # Update the exact refs even if origin.fetch is restricted or a branch
+            # was rebased. Atomic fetch prevents using a partially refreshed pair.
+            refspecs = [
+                f"+refs/heads/{name}:refs/remotes/origin/{name}"
+                for name in dict.fromkeys((base_branch, branch))
+            ]
+            run("fetch", "--atomic", "origin", *refspecs)
         base_ref = f"origin/{base_branch}"
         target_ref = f"origin/{branch}"
         base_commit = run("rev-parse", base_ref)

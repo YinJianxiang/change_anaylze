@@ -1,20 +1,17 @@
-# Codex Skills
+# Skill 目录
 
-本目录存放与 Harness 配套的两个 Codex Skill：
+本项目只提供一个 Skill：[change-analysis](<change-analysis/SKILL.md>)。
 
-- change-analysis/SKILL.md：读取需求和 Git 证据，分析代码变更、影响范围与测试点；
-- requirement-document/SKILL.md：只获取并整理 TAPD/钉钉需求文档。
+它根据代码变更、可用需求与源码证据，分析影响链路、风险和测试范围。当前助手执行最终分析；Harness 提供确定性证据，不调用外部模型服务。
 
-Skill 由 Codex 直接执行分析。Harness 只负责采集文档和代码证据，不连接外部模型能力。
+## 使用边界
 
-## 安装
+1. 按 Skill 步骤调用 Harness，保留完整证据及摘要。
+2. 阅读 `analysis_input.analysis_guidance`；必要时沿 `evidence_reference` 读取完整证据，检查裁剪、失败和范围限制。
+3. 对 diff、候选调用方和前后端契约做源码确认，不把文本命中当成确认调用链。
+4. 有实际需求正文时对照验收点；仅 patch 或需求缺失时说明推断和不可确认范围。
+5. 按统一模板完成业务判断和可执行测试场景；自动证据报告不是最终分析结果，未执行的测试明确注明。
 
-将两个目录复制到当前用户的 Codex Skills 目录：
+需求读取、确定性规则扫描、报告渲染和可选钉钉 Bridge 都是 Harness 能力，不单独注册 Skill。内部需求 CLI/包装器只用于采集、排查和测试。
 
-~~~powershell
-$Skills = "$env:USERPROFILE/.codex/skills"
-New-Item -ItemType Directory -Force "$Skills/change-analysis" | Out-Null
-New-Item -ItemType Directory -Force "$Skills/requirement-document" | Out-Null
-Copy-Item ./skills/change-analysis/SKILL.md "$Skills/change-analysis/SKILL.md" -Force
-Copy-Item ./skills/requirement-document/SKILL.md "$Skills/requirement-document/SKILL.md" -Force
-~~~
+安装、实际支持的命令及环境配置见 [Harness 说明](<../README.md>)；模块边界见 [结构说明](<../docs/structure.md>)。

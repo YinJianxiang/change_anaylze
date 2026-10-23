@@ -1,128 +1,130 @@
 # 代码变更分析 Harness
 
-这是一个可独立安装、与 Codex Skill 配合使用的本地证据采集工具，也是机器人复用的唯一证据采集实现。Harness 只负责获取 TAPD/钉钉需求、Git diff 和变更作用域证据；最终的业务理解、影响判断、报告和测试点由当前 Codex 直接完成。
+Harness 是 [change-analysis Skill](<skills/change-analysis/SKILL.md>) 的确定性证据采集层。它获取需求、固定 Git 提交、diff、Java 变更作用域 AST 和定向引用候选；当前助手负责源码确认、影响判断和最终报告。项目只有这一个 Skill，需求读取是内部能力。
 
-## 设计边界
+## 安装和配置
 
-- 获取 TAPD Story 或钉钉在线文档。
-- 读取基准提交和目标提交之间的 Git diff。
-- 只分析 diff 命中的文件、变更行和 AST 作用域。
-- Java 使用 `tree-sitter-java`，不使用旧版 Java 正则解析。
-- 变更作用域之外只执行变更符号的定向 `git grep`，不构建全仓库调用图。
-- 不调用 OpenAI API、`llm_server`、Agent SDK、机器人、邮箱或 Worker。
-- 不修改业务仓库。
-
-## 代码变更分析流程
-
-1. 获取需求文档。
-2. 解析基准分支和目标分支的 merge-base、提交和 diff。
-3. 计算每个变更文件的旧版本变更行和新版本变更行。
-4. Java 文件只解析与变更行相交的类、接口、枚举、record、方法和构造器。
-5. 提取变更 Java 作用域内的方法调用、构造器调用和方法引用。
-6. 非 Java 文件只保留变更行级的轻量符号证据，不扫描完整文件。
-7. 针对变更符号执行定向 `git grep`，收集候选调用方、测试、接口、数据库和配置线索。
-8. Codex 根据需求、diff、AST 作用域和候选引用进行二次确认。
-
-## 关键输出
-
-- `repository`：完整采集结果，保留采集器返回的全部条目和 Git 快照 diff。
-- `analysis_input.repositories`：供 Codex 首次阅读的摘要，列表裁剪会标记 `_truncated_items`。
-- `analysis_input.evidence_reference`：完整证据的位置；`json_pointer` 为 `/repository`。
-- `selection_plan`：每个变更文件的纳入状态（`included` / `non_java_light` / `truncated` / `summary_only` / `evidence_failed`）与原因。
-- `impact_units`：确定性分组的分析单元（文件、AST 作用域、候选引用、适用指南切片、`diff_byte_estimate`）。
-- `effort`：来自 `--effort` 或环境变量 `ANALYSIS_EFFORT`（`low` / `medium` / `high`，默认 `medium`）。
-- 指定 `--output .local/change-analysis.json` 时，同时写出 `.local/change-analysis.analysis-input.json` 摘要，其中 `evidence_reference.path` 为完整 JSON 的绝对路径。
-- 不指定 `--output` 时，stdout 返回包含完整证据与摘要的 JSON，引用指向同一结果中的 `/repository`，不会额外写摘要文件。
-- `--max-diff-bytes` 只限制摘要的 diff，完整证据保留原始 diff。完整采集结果仍受采集器自身搜索上限和解析能力限制，需检查 `analysis_limits`。
-- `--preview`：仍采集完整证据，stdout 先打印 selection/impact_units 门禁表，`status=PREVIEW`，默认不写 Markdown 报告。
-- Markdown 报告使用完整采集结果，并包含 Selection / ImpactUnits 节。
-
-Git 上下文和影响证据独立采集。任一阶段失败时保留另一阶段的成功结果，失败字段为 `null`，`evidence_warnings` 标明失败阶段；两阶段均失败时仍保留 Git 快照和 diff。
-
-- `analysis_mode`：两阶段成功为 `Changed-scope AST evidence analysis`，部分成功为 `Partial evidence analysis`，均失败或缺少提交信息为 `Diff-only evidence analysis`。
-- `repository.repository_impact.analysis_scope`: `changed_files_and_changed_ast_scopes_only`。
-- `repository.repository_impact.java_ast.files`: Java AST 变更作用域。
-- `repository.repository_impact.repository_scan.scan_scope`: `changed_files_only`。
-- `repository.repository_impact.repository_scan.whole_repository_ast_scan`: `false`。
-- `caller_candidates`、`symbol_references` 和 `api_references`: 候选证据，不是已确认调用边。
-
-## 目录结构
-
-```text
-change-analysis-harness/
-|-- README.md
-|-- run.ps1
-|-- run-requirement.ps1
-|-- skills/
-|   |-- change-analysis/SKILL.md
-|   `-- requirement-document/SKILL.md
-|-- docs/
-|   |-- structure.md
-|   |-- impact-and-test-guide.md
-|   `-- report-template.md
-`-- src/change_analysis_harness/
-    |-- harness.py
-    |-- git_service.py
-    |-- requirement_service.py
-    `-- evidence/
-        |-- collect_change_context.py
-        |-- collect_repository_impact.py
-        |-- java_ast.py
-        `-- security.py
-```
-
-## 使用
+Python 3.11+、Git；以下命令从仓库根目录执行。保留已有根虚拟环境，不必重复创建：
 
 ```powershell
-& D:/Project/change_analyze/change-analysis-harness/run.ps1 `
-  -RequirementUrl "https://www.tapd.cn/..." `
-  -Branch "feature/example" `
-  -Repo "D:/src/your-project" `
-  -BaseBranch "master" `
-  -Output "D:/Project/change_analyze/.local/change-analysis.json"
+python -m venv .venv
+& ./.venv/Scripts/python.exe -m pip install -e ./change-analysis-harness
 ```
 
-如果缺少 Java AST 依赖，运行：
+参考 [配置示例](<.env.example>) 编辑根环境配置，已有配置不要覆盖：
+
+```dotenv
+HARNESS_REPOSITORIES='{"backend":"D:/src/backend","frontend":"D:/src/frontend"}'
+HARNESS_REPO=D:/src/backend
+HARNESS_BASE_BRANCH=master
+ANALYSIS_EFFORT=medium
+```
+
+- 用 `--repository-name backend` / `-RepositoryName backend` 从 JSON 映射选仓库；否则使用 `HARNESS_REPO`。显式 `--repo` / `-Repo` 优先。
+- 环境配置中的相对仓库路径以所选环境文件目录为基准；CLI 路径以调用时当前目录为基准。已有进程环境变量优先于文件配置。
+- Git 可使用凭据助手；按需配置 `GIT_USERNAME`、`GIT_PERSONAL_ACCESS_TOKEN`。TAPD 需求按需配置 `TAPD_ACCESS_TOKEN` 和 `TAPD_API_BASE_URL`。
+- Python CLI 用 `--env-file .env` 显式选择配置。PowerShell 包装器优先使用 Harness 目录下的环境文件，不存在时回退根环境文件；可用 `-EnvFile` 覆盖。
+
+## 在线证据采集
 
 ```powershell
-python -m pip install -e D:/Project/change_analyze/change-analysis-harness
+& ./.venv/Scripts/python.exe -m change_analysis_harness `
+  "https://www.tapd.cn/123/stories/view/456" "feature/example" `
+  --repo D:/src/project --base-branch master --env-file .env `
+  --output .local/change-analysis.json --reporter-dir reporter
+
+# 包装入口使用根虚拟环境，继承调用者的输出路径语义。
+& ./change-analysis-harness/run.ps1 `
+  -RequirementUrl "https://www.tapd.cn/123/stories/view/456" `
+  -Branch "feature/example" -Repo D:/src/project -BaseBranch master `
+  -Output .local/change-analysis.json
 ```
 
+每次在线执行（包括 `--preview`）都从 `origin` fetch 基准与目标分支，失败立即停止，不使用旧引用继续分析。不提供 `--no-fetch`。采集固定 base/head/merge-base，不执行 `git pull`、不切分支、不修改业务工作区。
 
-## Markdown report output
+证据只覆盖 diff 命中的文件及变更行：Java 用 `tree-sitter-java` 解析相交的类、接口、枚举、record、方法和构造器；其他语言保留变更行级轻量符号证据。作用域外只对变更符号定向 `git grep`，不构建全仓库 AST 或调用图。`caller_candidates`、`symbol_references`、`api_references` 都是待源码确认的候选。
 
-The Harness writes a JSON evidence file and automatically groups the Markdown report by requirement:
-
-```text
-reporter/
-|-- <requirement-title>_<story-id>/
-    `-- change-analysis-report.md
-```
-
-Example:
+## 离线 patch 和确定性风险提示
 
 ```powershell
-& D:/Project/change_analyze/change-analysis-harness/run.ps1 `
-  -RequirementUrl "https://www.tapd.cn/..." `
-  -Branch "feature/example" `
-  -Repo "D:/src/your-project" `
-  -BaseBranch "master" `
-  -Output "D:/Project/change_analyze/.local/change-analysis.json"
+& ./.venv/Scripts/python.exe -m change_analysis_harness `
+  --diff-file changes.patch --output .local/patch.json `
+  --report-output .local/patch.md --no-archify `
+  --risk-exclude dist build node_modules --fail-on high
+
+& ./change-analysis-harness/run.ps1 -DiffFile changes.patch `
+  -RiskExclude dist,build,node_modules -FailOn high
 ```
 
-By default, the reporter directory is `D:/Project/change_analyze/reporter`. Use `-ReporterDir` to override it, `-ReportOutput` to specify an exact report path, or `-NoReport` to disable Markdown output.
+离线模式不访问 Git、需求服务或模型，不采集 AST/调用方。没有完整仓库时，不能确认所有间接调用方和完整回归范围。
 
-## 与机器人的关系
+`repository.risk_scan` 检查新增行中的疑似字面量凭证、动态执行、SQL 拼接、shell 调用、宽异常、删除操作、调试输出和跳过测试。候选含规则编号、严重度、文件、新版本行号及 `status=candidate`；不做数据流或跨行语义分析，规则命中不是已确认缺陷，零命中也不代表代码正确。原始 diff 仍可能包含敏感数据。
 
-`orchestrator/` 单向依赖本包。本包不依赖机器人，不需要安装根目录 `requirements.txt`。机器人项目配置只在其适配模块中处理，需求读取、Git 和证据算法均在本包维护。
+`--risk-exclude` 按完整目录段匹配，只影响规则扫描，不移除原始 diff 或其他证据。摘要最多展示 50 条候选，完整 JSON 和 CI 门禁使用全部候选。默认不启用风险退出码；显式 `--fail-on low|medium|high` 后，达到阈值返回 1，输入或执行错误返回 2，报告和 JSON 在门禁返回前写出。
 
-共享分析指南和报告覆盖项位于 `src/change_analysis_harness/guidance/`，随 Python 包分发。`docs/` 和历史 Skill 引用该唯一来源。Codex Skill 与机器人执行指令分开维护，各自使用同一份分析规则。
+## 输出与最终分析
 
-从仓库根目录安装和验证：
+- `repository`：完整证据；采集器自身上限与失败情况见 `analysis_limits`、`evidence_warnings`。
+- `analysis_input.repositories`：摘要，裁剪项以 `_truncated_items` 标记。
+- `analysis_input.evidence_reference`：完整证据引用，`json_pointer` 为 `/repository`。指定 `--output` 时额外生成同目录的 `<stem>.analysis-input.json`；未指定时 stdout 的 JSON 同时包含摘要与完整证据。
+- `selection_plan`、`impact_units`：确定性纳入状态和分析单元，不是模型结论。`--max-diff-bytes` 只裁剪摘要 diff。
+- `--effort low|medium|high` / `ANALYSIS_EFFORT`：分析工作量提示，默认 `medium`；不会触发外部模型调用。
+- `--preview`：仍采集完整证据，输出纳入/分组门禁表，状态为 `PREVIEW`，默认不生成 Markdown/HTML。
+
+Git 上下文与影响证据独立采集，一阶段失败仍保留另一阶段成功结果。实际范围分别标记为 `Changed-scope AST evidence analysis`、`Partial evidence analysis` 或 `Diff-only evidence analysis`，不得写成全仓库分析。
+
+默认输出 `reporter/<需求分组>/change-analysis-report.md` 及 HTML 影响图。`--reporter-dir` 修改报告根目录，`--report-output` 指定 Markdown 精确路径，`--no-report` 关闭 Markdown；HTML 使用独立的 `--no-archify` / `--archify-output` 控制。HTML 只呈现相同证据，交互库从 CDN 加载，离线退化为静态大纲；候选关系不等于确认调用边。
+
+PowerShell 包装器仅暴露其参数表中的选项；需要 `--preview`、`--effort`、`--no-archify`、`--archify-output` 等高级选项时使用 Python CLI，可运行 `python -m change_analysis_harness --help` 检查实际支持项。
+
+`READY_FOR_CODEX` 不表示分析完成；`analysis` 为 `null`。当前助手必须阅读 `analysis_input.analysis_guidance` 和必要源码，按 [统一指南](<src/change_analysis_harness/guidance/impact-and-test-guide.md>) 与 [报告模板](<src/change_analysis_harness/guidance/report-template.md>) 给出业务结论、影响链路和测试场景。自动 Markdown 只是证据草稿。只有实际执行的测试才能报告通过，缺失证据明确列为待确认。
+
+## 可选钉钉文档 Bridge
+
+Bridge 随本项目可选安装，不是独立 Skill。仅需钉钉 MCP 网关时安装：
 
 ```powershell
-python -m pip install -e ./change-analysis-harness
-python -m unittest discover -s change-analysis-harness/tests
+& ./.venv/Scripts/python.exe -m pip install -e './change-analysis-harness[dingtalk]'
+$env:DINGTALK_MCP_URL = 'https://mcp-gw.dingtalk.com/server/...?key=...'
+$env:DINGTALK_DOC_BRIDGE_TOKEN = '<本地共享令牌>'
+& ./.venv/Scripts/Activate.ps1
+python -m dingtalk_doc_bridge --host 127.0.0.1 --port 8091
 ```
 
-CLI 返回 `READY_FOR_CODEX` 不表示分析完成；生成的 Markdown 是证据报告，最终业务判断由 Codex 或机器人模型完成。
+Bridge 默认加载当前目录的 `.env`，可用 `--env-file <路径>` 选择配置，已有进程环境变量优先。MCP URL 需使用已授权的实际网关地址；其中的 key 视为凭证。保持服务终端运行，在 Harness 使用的配置中设置：
+
+```dotenv
+DINGTALK_DOC_BRIDGE_URL=http://127.0.0.1:8091/v1/doc/content
+DINGTALK_DOC_BRIDGE_TOKEN=<与 Bridge 一致的令牌>
+```
+
+`GET http://127.0.0.1:8091/health` 仅检查服务存活，真实文档拉取才验证上游授权。无须钉钉 MCP 时不安装 extra、不启动服务。
+
+## 数据库只读取证（可选）
+
+安装 `database` extra 后，可用内部数据库 CLI 定向检查 MySQL 表结构、历史数据和计算依据；不提供写操作，也不会在普通采集中自动联网。
+
+```powershell
+& ./.venv/Scripts/python.exe -m pip install -e './change-analysis-harness[database]'
+& ./.venv/Scripts/python.exe -m change_analysis_harness.database_cli `
+  --env-file .env --sql 'SELECT 1 AS connected'
+& ./.venv/Scripts/python.exe -m change_analysis_harness.database_cli `
+  --env-file .env --sql-file .local/evidence.sql --params '[123]' `
+  --max-rows 100 --timeout 10 --output .local/database-evidence.json
+```
+
+- 配置兼容 `DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME`，`DATABASE_URL` 设置时优先；URL 支持 `mysql://` 和 `mysql+pymysql://`，特殊字符需 URL 编码。已有进程变量优先于环境文件。
+- SQL 使用 `%s` 占位符与 JSON 数组参数；只允许单条只读语句。驱动禁用多语句，服务器必须成功进入只读事务，否则拒绝执行；结束时回滚并关闭连接。
+- `--timeout` 用于连接及 socket 读写超时，不是端到端执行时限；超时不保证服务端查询立即停止。避免全表重查询，优先索引条件、元数据和脱敏聚合。
+- 结果限制行数并标记截断，不代表扫描了全部数据；数据库结果不会自动合并进 Git 证据。助手需记录查询目的、环境、时间和数据口径后，补充到统一报告的相应章节。
+- 必须使用专用最小权限只读账户。SQL 词法防护和只读事务不能替代数据库权限；未知存储函数可能有副作用，不应执行。凭据不写报告，结果包含敏感数据时需脱敏。
+
+## 内部需求读取与验证
+
+[需求 CLI](<src/change_analysis_harness/requirement_cli.py>) 和 [需求包装器](<run-requirement.ps1>) 仅用于内部采集、排查和测试，不构成第二个 Skill。其状态按正文实际获取情况返回：完整为 `READY_FOR_CODEX`（0），部分或截断为 `PARTIAL`（1），无可用正文为 `FAILED`、不支持链接为 `UNSUPPORTED`（2）；失败和部分结果仍保留 JSON，应检查各文档状态。
+
+```powershell
+& ./.venv/Scripts/python.exe -m unittest discover -s change-analysis-harness/tests
+```
+
+模块职责见 [结构说明](<docs/structure.md>)；Skill 边界见 [Skill 目录说明](<skills/README.md>)。

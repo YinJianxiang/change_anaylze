@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .risk_scan import scan_diff
+
 
 EVIDENCE_ROOT = Path(__file__).resolve().parent / "evidence"
 CHANGE_SCRIPT = EVIDENCE_ROOT / "collect_change_context.py"
@@ -51,6 +53,7 @@ def _truncate_utf8(value: str, limit: int) -> tuple[str, bool]:
 def enrich_snapshot(snapshot: dict[str, Any], timeout: int = 60, max_diff_bytes: int = 0) -> dict[str, Any]:
     """Attach skill evidence; preserve the snapshot when evidence collection fails."""
     enriched = dict(snapshot)
+    enriched["risk_scan"] = scan_diff(str(snapshot.get("diff", "")), exclude=tuple(snapshot.get("risk_exclude", ())))
     if max_diff_bytes > 0:
         diff, truncated = _truncate_utf8(str(snapshot.get("diff", "")), max_diff_bytes)
         enriched["diff"] = diff
@@ -119,6 +122,10 @@ def codex_snapshots(snapshots: list[dict[str, Any]], max_diff_bytes: int = 0) ->
     result = []
     for snapshot in snapshots:
         item = dict(snapshot)
+        if isinstance(item.get("risk_scan"), dict):
+            risk_scan = dict(item["risk_scan"])
+            risk_scan["findings"] = _cap_evidence_list(risk_scan.get("findings"), 50)
+            item["risk_scan"] = risk_scan
         if max_diff_bytes > 0:
             item["diff"], item["diff_truncated_for_analysis"] = _truncate_utf8(
                 str(snapshot.get("diff", "")), max_diff_bytes

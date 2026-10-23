@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import re
+from html import unescape
 from typing import Any
 
 from change_analysis_harness.requirement_fetchers.dingtalk_fetcher import (
@@ -35,6 +37,28 @@ def _truncate(content: str) -> tuple[str, bool]:
     if len(text) <= limit:
         return text, False
     return text[:limit] + "\n\n…[truncated by REQUIREMENT_FETCH_MAX_CHARS]", True
+
+
+def _tapd_has_body(description: str) -> bool:
+    """Ignore DingTalk links and their labels, but retain actual TAPD content."""
+    # Image/media requirements are content even when wrapped in a document link.
+    if re.search(r"<(?:img|video|audio|iframe)\b|!\[", description, re.I):
+        return True
+    text = normalize_requirement_markdown(description)
+    text = re.sub(
+        r'(?<!!)\[.*?\]\(<?(https?://[^\s)>]+)>?(?:\s+"[^"]*")?\)',
+        lambda match: "" if extract_dingtalk_urls(match.group(1)) else match.group(0),
+        text,
+        flags=re.S,
+    )
+    text = re.sub(
+        r"https?://[^\s<>]+",
+        lambda match: "" if extract_dingtalk_urls(match.group(0)) else match.group(0),
+        text,
+    )
+    # Empty list items and formatting around links are not requirement content.
+    text = re.sub(r"(?m)^\s*\d+[.)]\s*", "", text)
+    return bool(re.sub(r"[\s\u200b\ufeff#*_~`>+\-:：,，.。;；()（）\[\]<>]+", "", text))
 
 
 def fetch_requirement_document(url: str) -> dict[str, Any]:
@@ -82,8 +106,13 @@ def fetch_requirement_document(url: str) -> dict[str, Any]:
                 "source": "tapd",
             }
         )
-        nested_urls = extract_dingtalk_urls(str(story.get("description_html") or ""))
-        nested_urls.extend(extract_dingtalk_urls(str(story.get("content") or "")))
+        # Use the raw description, before fetch_story adds the title/placeholder.
+        description = unescape(str(story.get("description_html") or ""))
+        if not description:
+            raw_story = story.get("story")
+            if isinstance(raw_story, dict):
+                description = unescape(str(raw_story.get("description") or ""))
+        nested_urls = extract_dingtalk_urls(description)
         # dedupe preserving order
         seen: set[str] = set()
         unique_nested: list[str] = []
@@ -94,13 +123,13 @@ def fetch_requirement_document(url: str) -> dict[str, Any]:
             seen.add(node)
             unique_nested.append(item)
 
-        if not unique_nested:
+        if not unique_nested or _tapd_has_body(description):
             content, truncated = _truncate(str(story.get("content") or ""))
             return {
                 "url": url,
                 "status": "FETCHED",
                 "content": content,
-                "meta": {**meta, "truncated": truncated, "nested_urls": []},
+                "meta": {**meta, "truncated": truncated, "nested_urls": unique_nested},
             }
 
         nested_parts: list[str] = []
@@ -110,6 +139,8 @@ def fetch_requirement_document(url: str) -> dict[str, Any]:
             try:
                 nested = fetch_dingtalk_document(nested_url)
                 nested_body = str(nested.get("content") or "").strip()
+                if not nested_body:
+                    raise DingTalkFetchError("DingTalk document returned empty content")
                 nested_title = str(nested.get("title") or nested_url).strip()
                 nested_parts.append(f"## 钉钉文档：{nested_title}\n\n来源：{nested_url}\n\n{nested_body}")
                 nested_meta.append(
@@ -125,27 +156,21 @@ def fetch_requirement_document(url: str) -> dict[str, Any]:
                 nested_errors.append(f"{nested_url}: {exc}")
                 nested_meta.append({"url": nested_url, "status": "FAILED", "error": str(exc)})
 
-        tapd_section = str(story.get("content") or "").strip()
-        sections = [tapd_section]
-        if nested_parts:
-            sections.append("# 关联钉钉需求文档\n\n" + "\n\n---\n\n".join(nested_parts))
-        content, truncated = _truncate("\n\n".join(part for part in sections if part).strip())
-
-        if nested_parts and not nested_errors:
-            status = "FETCHED"
-        elif nested_parts and nested_errors:
-            status = "PARTIAL"
-        elif nested_errors:
-            status = "PARTIAL"
-        else:
-            status = "FETCHED"
+        content, truncated = _truncate(
+            "# \u5173\u8054\u9489\u9489\u9700\u6c42\u6587\u6863\n\n" + "\n\n---\n\n".join(nested_parts)
+            if nested_parts else ""
+        )
+        status = "PARTIAL" if nested_errors else "FETCHED"
+        if not nested_parts:
+            status = "FAILED"
 
         return {
             "url": url,
             "status": status,
-            "content": content,
+            "content": content or None,
             "meta": {
                 **meta,
+                "source": "dingtalk",
                 "truncated": truncated,
                 "nested_urls": unique_nested,
                 "nested": nested_meta,

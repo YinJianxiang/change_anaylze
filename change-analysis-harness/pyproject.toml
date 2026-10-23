@@ -12,6 +12,10 @@ dependencies = [
     "tree-sitter-java==0.23.5",
 ]
 
+[project.optional-dependencies]
+dingtalk = ["mcp>=1.8,<2"]
+database = ["PyMySQL>=1.1.1,<2"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

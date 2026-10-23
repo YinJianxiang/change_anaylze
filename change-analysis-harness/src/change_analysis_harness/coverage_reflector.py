@@ -82,7 +82,7 @@ def reflect_analysis_result(
     effort: str = "medium",
     strict: bool | None = None,
 ) -> dict[str, Any]:
-    """Return coverage gaps for a bot/Codex structured analysis result."""
+    """Return coverage gaps for a structured code-analysis result."""
     payload = result if isinstance(result, dict) else {}
     analysis = payload.get("result") if isinstance(payload.get("result"), dict) else payload
     use_strict = bool(strict) if strict is not None else effort == "high"

@@ -13,9 +13,16 @@ if (-not (Test-Path $defaultEnvFile)) {
 if ([string]::IsNullOrWhiteSpace($EnvFile)) {
   $EnvFile = $defaultEnvFile
 }
+$projectRoot = Split-Path -Parent $root
 if (-not (Test-Path $python)) {
-  throw "Python virtual environment not found: $python"
+  throw "Python virtual environment not found: $python`nFrom '$projectRoot', run:`n  python -m venv .venv`n  ./.venv/Scripts/python.exe -m pip install -e ./change-analysis-harness"
 }
+& $python -c "import change_analysis_harness" 2>$null
+if ($LASTEXITCODE -ne 0) {
+  throw "Harness is not installed in the root virtual environment. From '$projectRoot', run:`n  ./.venv/Scripts/python.exe -m pip install -e ./change-analysis-harness"
+}
+$EnvFile = [System.IO.Path]::GetFullPath($EnvFile)
+$Output = [System.IO.Path]::GetFullPath($Output)
 
 $args = @(
   "-m", "change_analysis_harness.requirement_cli",

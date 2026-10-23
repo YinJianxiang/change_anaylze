@@ -1,4 +1,4 @@
-"""Shared interpretation rules, independent of Codex and bot execution."""
+"""Canonical interpretation rules and report template for the analysis Skill."""
 from __future__ import annotations
 
 import re
@@ -15,7 +15,34 @@ def _guide_root():
 def _parse_sections(markdown: str) -> dict[str, str]:
     matches = list(_SECTION_RE.finditer(markdown))
     if not matches:
-        return {"full": markdown.strip()}
+        # The user-maintained guide stays verbatim; compatibility ids select its
+        # existing headings instead of injecting Harness-only rules into it.
+        headings = list(re.finditer(r"^## (.+)$", markdown, re.MULTILINE))
+        by_heading = {
+            match.group(1).strip(): markdown[
+                match.start():headings[index + 1].start() if index + 1 < len(headings) else len(markdown)
+            ].strip()
+            for index, match in enumerate(headings)
+        }
+        aliases = {
+            "evidence-priority": "Coverage rules",
+            "impact-steps": "Change-to-test heuristics",
+            "risk-levels": "Risk level",
+            "api": "Change-to-test heuristics",
+            "sql": "Change-to-test heuristics",
+            "config": "Change-to-test heuristics",
+            "jobs": "Change-to-test heuristics",
+            "messaging": "Change-to-test heuristics",
+            "test-design": "Scenario quality",
+            "limits": "Coverage rules",
+        }
+        sections = {"full": markdown.strip(), **{
+            key: by_heading[heading] for key, heading in aliases.items() if heading in by_heading
+        }}
+        completeness = by_heading.get("Requirement completeness (Mode B)")
+        if completeness and "evidence-priority" in sections:
+            sections["evidence-priority"] += "\n\n" + completeness
+        return sections
     sections: dict[str, str] = {}
     for index, match in enumerate(matches):
         start = match.end()

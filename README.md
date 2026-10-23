@@ -1,72 +1,77 @@
-# 代码变更分析
+# 代码变更分析 Skill + Harness
 
-项目分为独立 Harness 和机器人两部分。Harness 维护唯一的需求和代码变更证据实现；机器人复用它，再完成任务调度、模型分析和飞书交互。
+本项目只维护一个 Skill：**change-analysis**。Skill 指导当前助手完成源码确认、影响判断、风险和测试范围分析；Harness 提供确定性的需求、Git diff 与变更作用域证据，不调用外部模型服务。
 
-| 部分 | 位置 | 职责 |
-|---|---|---|
-| Harness | [change-analysis-harness](change-analysis-harness/README.md) | TAPD/钉钉需求、固定 Git 提交、diff、变更作用域 AST、定向引用候选、证据报告 |
-| 机器人 | [orchestrator](orchestrator/README.md) | 邮箱触发、任务队列、模型分析、飞书通知、确认和反馈 |
-| 钉钉桥接 | [dingtalk_doc_bridge](dingtalk_doc_bridge/README.md) | 连接钉钉文档 MCP 网关，按需独立启动，两边共用 |
-| 历史 Skill | [analyze-change-test-scope](analyze-change-test-scope/README.md) | 旧名称和脚本兼容，转发到 Harness |
+- [唯一 Skill](<change-analysis-harness/skills/change-analysis/SKILL.md>)：分析步骤、证据边界和报告要求。
+- [Harness 使用说明](<change-analysis-harness/README.md>)：安装、采集命令、配置与输出。
+- [结构说明](<change-analysis-harness/docs/structure.md>)：模块职责与数据流。
+- [Skill 目录说明](<change-analysis-harness/skills/README.md>)：Skill 与内部能力的边界。
 
-```mermaid
-flowchart LR
-    Codex[Codex / CLI] --> Harness[Harness 证据采集]
-    Mail[邮箱] --> Bot[机器人 Worker]
-    Bot --> Harness
-    Harness --> Evidence[需求 + 固定提交 + 变更作用域证据]
-    Evidence --> CodexReport[Codex 分析报告]
-    Evidence --> Model[机器人模型分析]
-    Model --> Feishu[飞书确认 / 反馈]
-```
+## 安装
 
-## 只使用 Harness
-
-需要 Python 3.11+ 和 Git。在仓库根目录运行：
+需要 Python 3.11+ 和 Git。从仓库根目录执行；已有根虚拟环境时跳过创建步骤：
 
 ```powershell
-python -m pip install -e ./change-analysis-harness
-Copy-Item change-analysis-harness/.env.example change-analysis-harness/.env
-python -m change_analysis_harness `
+python -m venv .venv
+& ./.venv/Scripts/python.exe -m pip install -e ./change-analysis-harness
+```
+
+根虚拟环境是本地运行环境，继续保留但不纳入版本管理。根环境配置同样继续保留；按 [配置示例](<change-analysis-harness/.env.example>) 补充必需键，已有配置不要覆盖。只需离线 patch 分析时，无需需求服务凭证或 Git 远端权限。
+
+## 采集与分析
+
+```powershell
+# 在仓库根目录运行，替换需求链接、目标分支与业务仓库路径。
+& ./.venv/Scripts/python.exe -m change_analysis_harness `
   "https://www.tapd.cn/123/stories/view/456" "feature/example" `
-  --repo D:/src/project --base-branch master `
-  --env-file change-analysis-harness/.env `
+  --repo D:/src/project --base-branch master --env-file .env `
   --output .local/change-analysis.json --reporter-dir reporter
+
+# 只有 patch：不访问 Git 或需求服务，不采集 AST 或调用方。
+& ./.venv/Scripts/python.exe -m change_analysis_harness `
+  --diff-file changes.patch --output .local/patch.json --reporter-dir reporter
 ```
 
-Harness 不需要机器人、RabbitMQ 或模型 API。返回 `READY_FOR_CODEX`、`analysis_input` 和证据，`analysis` 为 `null`。自动生成的 Markdown 是证据报告，最终业务结论和测试点仍需 Codex 分析。
+在线采集会从 `origin` 获取基准和目标分支，固定提交再分析，不切换业务仓库分支、不修改工作区。采集失败或证据降级必须如实保留，文本命中不能当作已确认调用关系。
 
-`analysis_input` 额外包含确定性 `selection_plan`、`impact_units` 与 `effort`（`ANALYSIS_EFFORT` / `--effort`）。可用 `--preview` 只查看门禁表与 ImpactUnit 分组。机器人按 `impact_units` 分批（无则回退字节切分），默认串行，可用 `LLM_UNIT_CONCURRENCY` 开启有界并发；分析返回后会跑 CoverageReflector，把缺口写入 `uncertainties`。
+返回 `READY_FOR_CODEX` 只表示证据已准备，`analysis` 为 `null`。当前助手仍须按 Skill 阅读统一指南、完整证据及相关源码，补齐业务判断和可执行测试场景。自动生成的 Markdown/HTML 是证据呈现，不是已完成的最终分析。
 
-仅获取需求可运行 `python -m change_analysis_harness.requirement_cli --help` 查看参数。
+## 可选钉钉文档 Bridge
 
-## 使用机器人
+仅在需要通过钉钉 MCP 网关获取需求正文时安装可选依赖：
 
 ```powershell
-python -m pip install -r requirements.txt
-Copy-Item .env.example .env
-Copy-Item .local/projects.example.json .local/projects.json
-Copy-Item .local/reviewers.example.json .local/reviewers.json
+& ./.venv/Scripts/python.exe -m pip install -e './change-analysis-harness[dingtalk]'
+# Bridge 默认加载当前目录的 .env；已有进程环境变量优先。
+$env:DINGTALK_MCP_URL = 'https://mcp-gw.dingtalk.com/server/...?key=...'
+$env:DINGTALK_DOC_BRIDGE_TOKEN = '<本地共享令牌>'
+& ./.venv/Scripts/Activate.ps1
+python -m dingtalk_doc_bridge --host 127.0.0.1 --port 8091
 ```
 
-填写配置后，按[机器人运行说明](orchestrator/README.md)启动。机器人使用根目录 `.env`；Harness CLI 通过 `--env-file` 显式选择配置。已有配置文件时直接编辑，不要覆盖。
+在 Harness 使用的环境配置中设置 `DINGTALK_DOC_BRIDGE_URL=http://127.0.0.1:8091/v1/doc/content`，并配置相同的 `DINGTALK_DOC_BRIDGE_TOKEN`。保持 Bridge 终端运行；`GET http://127.0.0.1:8091/health` 只检查本地服务存活，不证明上游凭证可用。凭证、需求正文和 diff 不应提交或公开。
 
-## 一致性的范围
+需求单独读取仅是 Harness 内部能力，不提供第二个 Skill 或独立产品入口。
 
-两条路径共用需求读取、Git 快照、变更行和 Java AST、证据裁剪与降级规则，以及[影响分析指南](change-analysis-harness/src/change_analysis_harness/guidance/impact-and-test-guide.md)和[报告覆盖项](change-analysis-harness/src/change_analysis_harness/guidance/report-template.md)。变更这些规则只需修改 Harness。
+## 可选 MySQL 只读取证
 
-机器人额外支持多仓库任务、模型分批分析和飞书反馈；Codex 与机器人使用不同执行环境和报告格式，因此保证采集实现与分析规则一致，不保证模型生成的文字逐字相同。候选引用仍需源码确认，缺失证据必须明确列为待确认。
-
-旧命令 `python -m orchestrator.change_analysis_harness` 保留，但已与新 CLI 完全一致：不会再调用模型，也不再接受 Python 构造参数 `llm_service`。自动分析请使用机器人 Worker。
-
-根目录的 `agent_sdk_connect.py`、`agent_sdk_skill_test.py`、`llm_connect.py` 是历史连通性或 Skill 工具实验，不属于两条正式运行路径；尤其 Skill 实验中的独立裁剪和执行方式不作为 Harness 功能一致性的保证。
-
-## 验证
+数据库查询是代码分析 Skill 的内部补证能力，不会随普通采集自动执行。兼容参考项目的 `DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME`，也支持优先使用 `DATABASE_URL`。配置仅存放本地环境文件，模板不含真实凭据。
 
 ```powershell
-python -m unittest discover -s tests
-python -m unittest discover -s change-analysis-harness/tests
-python -m unittest discover -s analyze-change-test-scope/tests
+& ./.venv/Scripts/python.exe -m pip install -e './change-analysis-harness[database]'
+& ./.venv/Scripts/python.exe -m change_analysis_harness.database_cli `
+  --env-file .env --sql 'SELECT 1 AS connected'
+# 复杂查询可使用 --sql-file <文件> --params '[123]'（SQL 中使用 %s 占位符）。
 ```
 
-`tests/test_harness_bot_parity.py` 使用临时 Git 仓库验证两条路径的证据一致，并检查 Harness 入口不加载机器人和模型依赖。测试不会发送飞书消息或调用真实模型。
+仅提供单语句只读查询、服务器只读事务、连接/读写超时和结果行数上限，不提供数据库写入功能。应使用专用最小权限只读账户；SQL 检查和只读事务不能替代数据库权限，也不能保证未知存储函数无副作用。数据库结果用于核验表结构、历史数据和业务计算，不能替代源码实现核验；敏感数据和结果文件不得公开。
+
+## 本地数据与验证
+
+本地目录中的 `repos` 是业务 checkout，继续保留；采集 JSON、报告和缓存按需生成，不属于代码分发内容。不要为清理工具项目而删除业务 checkout 或根虚拟环境。
+
+```powershell
+& ./.venv/Scripts/python.exe -m unittest discover -s change-analysis-harness/tests
+```
+
+测试是否通过以实际执行结果为准；真实需求获取、Git 认证和钉钉 MCP 连通性需要对应环境另行验证。

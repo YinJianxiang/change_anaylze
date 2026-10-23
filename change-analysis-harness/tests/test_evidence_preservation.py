@@ -83,7 +83,7 @@ class EvidencePreservationTests(unittest.TestCase):
             status = main([
                 "https://example.invalid/1", "feature", "--repo", str(self.root),
                 "--env-file", str(self.root / "absent.env"), "--output", str(output),
-                "--report-output", str(report), "--max-diff-bytes", "10",
+                "--report-output", str(report), "--archify-output", str(self.root / "report.html"), "--max-diff-bytes", "10",
             ])
         self.assertEqual(status, 0)
         full = json.loads(output.read_text(encoding="utf-8"))
@@ -95,7 +95,7 @@ class EvidencePreservationTests(unittest.TestCase):
         self.assertEqual(full["repository"]["diff"], self.snapshot["diff"])
         markdown = report.read_text(encoding="utf-8")
         self.assertIn("method6", markdown)
-        self.assertIn("Changed symbols: **7**", markdown)
+        self.assertIn("7 个变更符号", markdown)
         self.assertIn(str(output.resolve()), markdown)
         self.assertIn(str(summary_path.resolve()), markdown)
 
@@ -104,7 +104,7 @@ class EvidencePreservationTests(unittest.TestCase):
         with self.mocked_collectors(), redirect_stdout(stdout):
             main([
                 "https://example.invalid/1", "feature", "--repo", str(self.root),
-                "--env-file", str(self.root / "absent.env"), "--no-report",
+                "--env-file", str(self.root / "absent.env"), "--no-report", "--no-archify",
             ])
         result = json.loads(stdout.getvalue())
         self.assertEqual(result["repository"]["repository_impact"], self.impact)

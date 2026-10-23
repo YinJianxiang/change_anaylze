@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -33,8 +32,25 @@ def run(requirement_url: str) -> dict[str, Any]:
     if not url:
         raise HarnessInputError("requirement_url must not be empty")
     documents = RequirementService().prepare([url]).get("documents", [])
+    usable = [document for document in documents
+              if document.get("status") in {"FETCHED", "PARTIAL"}
+              and isinstance(document.get("content"), str) and document["content"].strip()]
+    if not usable:
+        status = "UNSUPPORTED" if documents and all(
+            document.get("status") == "UNSUPPORTED" for document in documents
+        ) else "FAILED"
+    elif len(usable) != len(documents) or any(
+        document.get("status") != "FETCHED"
+        or document.get("meta", {}).get("truncated")
+        or any(nested.get("status") != "FETCHED"
+               for nested in document.get("meta", {}).get("nested", []))
+        for document in usable
+    ):
+        status = "PARTIAL"
+    else:
+        status = "READY_FOR_CODEX"
     return {
-        "status": "READY_FOR_CODEX",
+        "status": status,
         "operation": "requirement_document_fetch",
         "requirement_documents": documents,
         "analysis": None,
@@ -58,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(sys.stdout, "reconfigure"):
             sys.stdout.reconfigure(encoding="utf-8")
         print(rendered)
-    return 0
+    return {"READY_FOR_CODEX": 0, "PARTIAL": 1}.get(result["status"], 2)
 
 
 if __name__ == "__main__":
